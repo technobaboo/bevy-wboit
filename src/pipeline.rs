@@ -1,11 +1,13 @@
 use bevy::asset::{uuid_handle, Handle};
-use bevy::pbr::MeshPipeline;
+use bevy::pbr::{MeshPipeline, StandardMaterial};
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::render_resource::{
-    BlendComponent, BlendFactor, BlendOperation, BlendState, ColorTargetState, ColorWrites,
-    RenderPipelineDescriptor, SpecializedMeshPipeline, SpecializedMeshPipelineError, TextureFormat,
+    AsBindGroup, BindGroupLayoutDescriptor, BlendComponent, BlendFactor, BlendOperation,
+    BlendState, ColorTargetState, ColorWrites, RenderPipelineDescriptor,
+    SpecializedMeshPipeline, SpecializedMeshPipelineError, TextureFormat,
 };
-use bevy::shader::Shader;
+use bevy::render::renderer::RenderDevice;
+use bevy::shader::{Shader, ShaderDefVal};
 use bevy::{pbr::MeshPipelineKey, prelude::*};
 
 pub const WBOIT_FRAGMENT_SHADER_HANDLE: Handle<Shader> =
@@ -13,21 +15,14 @@ pub const WBOIT_FRAGMENT_SHADER_HANDLE: Handle<Shader> =
 
 /// The WBOIT accumulation pipeline.
 ///
-/// Wraps `MeshPipeline` to reuse all standard bind group layouts and vertex processing,
-/// but overrides the fragment shader and render targets for WBOIT MRT output.
+/// Wraps `MeshPipeline` but adds the StandardMaterial bind group layout at index 3,
+/// overrides the fragment shader for WBOIT MRT output.
 #[derive(Resource, Clone)]
 pub struct WboitPipeline {
     pub mesh_pipeline: MeshPipeline,
+    /// StandardMaterial's bind group layout descriptor, inserted at index 3.
+    pub material_layout: BindGroupLayoutDescriptor,
     pub fragment_shader: Handle<Shader>,
-}
-
-impl WboitPipeline {
-    pub fn new(mesh_pipeline: MeshPipeline, fragment_shader: Handle<Shader>) -> Self {
-        Self {
-            mesh_pipeline,
-            fragment_shader,
-        }
-    }
 }
 
 impl SpecializedMeshPipeline for WboitPipeline {
@@ -41,6 +36,18 @@ impl SpecializedMeshPipeline for WboitPipeline {
         let mut desc = self.mesh_pipeline.specialize(key, layout)?;
 
         desc.label = Some("wboit_accum_pipeline".into());
+
+        // Add MATERIAL_BIND_GROUP shader def (index 3) so PBR imports resolve correctly.
+        // MaterialPipelineSpecializer does the same (material.rs:466-475).
+        desc.vertex.shader_defs.push(ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 3));
+        if let Some(ref mut fragment) = desc.fragment {
+            fragment.shader_defs.push(ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 3));
+        }
+
+        // Insert StandardMaterial bind group layout at index 3.
+        // MeshPipeline::specialize() only produces layouts for groups 0-2;
+        // without this the fragment shader's material bindings have no pipeline layout entry.
+        desc.layout.insert(3, self.material_layout.clone());
 
         // Override fragment shader
         if let Some(ref mut fragment) = desc.fragment {
@@ -100,11 +107,14 @@ impl SpecializedMeshPipeline for WboitPipeline {
 pub fn init_wboit_pipeline(
     mut commands: Commands,
     mesh_pipeline: Res<MeshPipeline>,
+    render_device: Res<RenderDevice>,
 ) {
-    commands.insert_resource(WboitPipeline::new(
-        mesh_pipeline.clone(),
-        WBOIT_FRAGMENT_SHADER_HANDLE,
-    ));
+    let material_layout = StandardMaterial::bind_group_layout_descriptor(&render_device);
+    commands.insert_resource(WboitPipeline {
+        mesh_pipeline: mesh_pipeline.clone(),
+        material_layout,
+        fragment_shader: WBOIT_FRAGMENT_SHADER_HANDLE,
+    });
 }
 
 /// Check that MSAA is off for cameras with WboitSettings.
