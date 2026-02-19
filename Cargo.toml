@@ -1,0 +1,12 @@
+[package]
+name = "bevy-wboit"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { path = "../bevy" }
+bevy_utils = { path = "../bevy/crates/bevy_utils", features = ["debug"] }
+
+[[example]]
+name = "wboit_demo"
+path = "examples/wboit_demo.rs"
