@@ -89,7 +89,7 @@ pub fn queue_wboit_composite_pipeline(
     pipeline_cache: Res<PipelineCache>,
     composite_pipeline: Option<Res<WboitCompositePipeline>>,
     fullscreen_shader: Res<FullscreenShader>,
-    views: Query<(Entity, &ViewTarget), With<WboitSettings>>,
+    views: Query<(Entity, &ViewTarget), (With<WboitSettings>, Without<WboitCompositePipelineId>)>,
 ) {
     let Some(composite_pipeline) = composite_pipeline else {
         return;

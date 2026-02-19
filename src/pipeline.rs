@@ -1,5 +1,5 @@
 use bevy::asset::{uuid_handle, Handle};
-use bevy::pbr::{MeshPipeline, StandardMaterial};
+use bevy::pbr::{material_uses_bindless_resources, MeshPipeline, StandardMaterial};
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::render_resource::{
     AsBindGroup, BindGroupLayoutDescriptor, BlendComponent, BlendFactor, BlendOperation,
@@ -23,6 +23,9 @@ pub struct WboitPipeline {
     /// StandardMaterial's bind group layout descriptor, inserted at index 3.
     pub material_layout: BindGroupLayoutDescriptor,
     pub fragment_shader: Handle<Shader>,
+    /// Whether the device supports (and will use) bindless resources for StandardMaterial.
+    /// Mirrors the check in `MaterialPipelineSpecializer` so we add `BINDLESS` to shader defs.
+    pub bindless: bool,
 }
 
 impl SpecializedMeshPipeline for WboitPipeline {
@@ -42,6 +45,17 @@ impl SpecializedMeshPipeline for WboitPipeline {
         desc.vertex.shader_defs.push(ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 3));
         if let Some(ref mut fragment) = desc.fragment {
             fragment.shader_defs.push(ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 3));
+        }
+
+        // Mirror MaterialPipelineSpecializer: add BINDLESS when the device supports it.
+        // Without this the shader's #ifdef BINDLESS path is skipped, but the layout returned
+        // by bind_group_layout_descriptor (with force_no_bindless=false) is the bindless
+        // storage-buffer layout — causing a type mismatch that makes the pipeline invalid.
+        if self.bindless {
+            desc.vertex.shader_defs.push("BINDLESS".into());
+            if let Some(ref mut fragment) = desc.fragment {
+                fragment.shader_defs.push("BINDLESS".into());
+            }
         }
 
         // Insert StandardMaterial bind group layout at index 3.
@@ -110,10 +124,12 @@ pub fn init_wboit_pipeline(
     render_device: Res<RenderDevice>,
 ) {
     let material_layout = StandardMaterial::bind_group_layout_descriptor(&render_device);
+    let bindless = material_uses_bindless_resources::<StandardMaterial>(&render_device);
     commands.insert_resource(WboitPipeline {
         mesh_pipeline: mesh_pipeline.clone(),
         material_layout,
         fragment_shader: WBOIT_FRAGMENT_SHADER_HANDLE,
+        bindless,
     });
 }
 
