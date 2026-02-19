@@ -1,4 +1,4 @@
-use bevy::asset::Handle;
+use bevy::asset::{uuid_handle, Handle};
 use bevy::pbr::MeshPipeline;
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::render_resource::{
@@ -7,6 +7,9 @@ use bevy::render::render_resource::{
 };
 use bevy::shader::Shader;
 use bevy::{pbr::MeshPipelineKey, prelude::*};
+
+pub const WBOIT_FRAGMENT_SHADER_HANDLE: Handle<Shader> =
+    uuid_handle!("3e4b7c2a-1f0d-4e8a-9b5c-2d6f7e8a9b0c");
 
 /// The WBOIT accumulation pipeline.
 ///
@@ -97,15 +100,10 @@ impl SpecializedMeshPipeline for WboitPipeline {
 pub fn init_wboit_pipeline(
     mut commands: Commands,
     mesh_pipeline: Res<MeshPipeline>,
-    mut shaders: ResMut<Assets<Shader>>,
 ) {
-    let fragment_shader = shaders.add(Shader::from_wgsl(
-        include_str!("shaders/wboit_fragment.wgsl"),
-        "wboit_fragment.wgsl",
-    ));
     commands.insert_resource(WboitPipeline::new(
         mesh_pipeline.clone(),
-        fragment_shader,
+        WBOIT_FRAGMENT_SHADER_HANDLE,
     ));
 }
 

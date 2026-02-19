@@ -1,3 +1,4 @@
+use bevy::asset::{uuid_handle, Handle};
 use bevy::prelude::*;
 use bevy::render::camera::ExtractedCamera;
 use bevy::render::render_resource::{
@@ -10,6 +11,9 @@ use bevy::render::renderer::{RenderContext, RenderDevice, ViewQuery};
 use bevy::render::view::ViewTarget;
 use bevy::core_pipeline::FullscreenShader;
 use bevy::shader::Shader;
+
+pub const WBOIT_COMPOSITE_SHADER_HANDLE: Handle<Shader> =
+    uuid_handle!("5f2a9d1b-3c4e-4f7a-8b6c-1e2f3a4b5c6d");
 
 use crate::settings::WboitSettings;
 use crate::textures::WboitTextures;
@@ -34,7 +38,6 @@ pub struct WboitCompositePipeline {
 pub fn init_wboit_composite_pipeline(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
-    mut shaders: ResMut<Assets<Shader>>,
 ) {
     let entries = vec![
         // Binding 0: accum texture
@@ -71,10 +74,7 @@ pub fn init_wboit_composite_pipeline(
         &entries,
     );
 
-    let fragment_shader = shaders.add(Shader::from_wgsl(
-        include_str!("../shaders/wboit_composite.wgsl"),
-        "wboit_composite.wgsl",
-    ));
+    let fragment_shader = WBOIT_COMPOSITE_SHADER_HANDLE;
 
     commands.insert_resource(WboitCompositePipeline {
         bind_group_layout_descriptor,
