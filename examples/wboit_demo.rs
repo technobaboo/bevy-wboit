@@ -105,22 +105,42 @@ fn toggle_mode(
 fn rotate_camera(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    mouse_motion: Res<bevy::input::mouse::AccumulatedMouseMotion>,
     mut camera: Query<&mut Transform, With<Camera3d>>,
 ) {
     let Ok(mut transform) = camera.single_mut() else {
         return;
     };
 
-    let mut rotation = 0.0;
+    // Keyboard arrow keys
+    let mut yaw = 0.0f32;
     if keys.pressed(KeyCode::ArrowLeft) {
-        rotation += 1.0;
+        yaw += 1.0;
     }
     if keys.pressed(KeyCode::ArrowRight) {
-        rotation -= 1.0;
+        yaw -= 1.0;
+    }
+    if yaw != 0.0 {
+        let angle = yaw * time.delta_secs();
+        transform.rotate_around(Vec3::ZERO, Quat::from_rotation_y(angle));
     }
 
-    if rotation != 0.0 {
-        let angle = rotation * time.delta_secs();
-        transform.rotate_around(Vec3::ZERO, Quat::from_rotation_y(angle));
+    // Mouse drag orbit
+    if mouse_buttons.pressed(MouseButton::Left) {
+        let delta = mouse_motion.delta;
+        if delta != Vec2::ZERO {
+            let sensitivity = 0.005;
+            transform.rotate_around(
+                Vec3::ZERO,
+                Quat::from_rotation_y(-delta.x * sensitivity),
+            );
+            // Pitch: rotate around the camera's local right axis
+            let right = transform.right();
+            transform.rotate_around(
+                Vec3::ZERO,
+                Quat::from_axis_angle(*right, -delta.y * sensitivity),
+            );
+        }
     }
 }
