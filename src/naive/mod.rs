@@ -3,30 +3,29 @@ pub mod composite;
 
 use bevy::asset::load_internal_asset;
 use bevy::prelude::*;
-use bevy::core_pipeline::{Core3d, Core3dSystems};
-use bevy::core_pipeline::core_3d::main_transparent_pass_3d;
+use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
 use bevy::pbr::queue_material_meshes;
 use bevy::render::extract_component::ExtractComponentPlugin;
 use bevy::pbr::MeshPipeline;
+use bevy::render::render_graph::{RenderGraphApp, ViewNodeRunner};
 use bevy::render::render_phase::{
     AddRenderCommand, DrawFunctions, SortedRenderPhasePlugin, ViewSortedRenderPhases,
     sort_phase_system,
 };
-use bevy::render::render_resource::SpecializedMeshPipelines;
+use bevy::render::render_resource::{Shader, SpecializedMeshPipelines};
 use bevy::render::view::RetainedViewEntity;
-use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderDebugFlags, RenderSystems};
-use bevy::shader::Shader;
+use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderDebugFlags, RenderSet};
 use std::collections::HashSet;
 
 use crate::phase::WboitAccum3d;
-use crate::pipeline::{
-    WboitPipeline, check_msaa_wboit, configure_depth_texture_usages_wboit, init_wboit_pipeline,
-};
+use crate::pipeline::WboitPipeline;
 use crate::queue::{DrawWboit, drain_transparent_for_wboit, queue_wboit_meshes};
 use crate::textures::prepare_wboit_textures;
 
+use self::accum_pass::{WboitAccumNode, WboitAccumPass};
 use self::composite::{
-    init_wboit_composite_pipeline, prepare_wboit_composite_bind_group,
+    WboitCompositeNode, WboitCompositePass,
+    WboitCompositePipeline, prepare_wboit_composite_bind_group,
     queue_wboit_composite_pipeline,
 };
 
@@ -70,15 +69,15 @@ impl Plugin for NaiveWboitPlugin {
         app.add_plugins((
             ExtractComponentPlugin::<crate::settings::WboitSettings>::default(),
             // Registers batch_and_prepare_sorted_render_phase + collect_buffers_for_phase for
-            // WboitAccum3d, which populates phase_instance_buffers so SetMeshBindGroup<2>
+            // WboitAccum3d, which populates phase_instance_buffers so SetMeshBindGroup<1>
             // can find the per-phase GPU buffer in GPU-preprocessing mode.
             SortedRenderPhasePlugin::<WboitAccum3d, MeshPipeline>::new(
                 RenderDebugFlags::default(),
             ),
         ))
         .register_type::<crate::settings::WboitSettings>()
-        .add_systems(Update, check_msaa_wboit)
-        .add_systems(Last, configure_depth_texture_usages_wboit);
+        .add_systems(Update, crate::pipeline::check_msaa_wboit)
+        .add_systems(Last, crate::pipeline::configure_depth_texture_usages_wboit);
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -92,26 +91,29 @@ impl Plugin for NaiveWboitPlugin {
             .add_systems(
                 Render,
                 (
-                    prepare_wboit_textures.in_set(RenderSystems::PrepareResources),
-                    queue_wboit_meshes.in_set(RenderSystems::QueueMeshes),
+                    prepare_wboit_textures.in_set(RenderSet::PrepareResources),
+                    queue_wboit_meshes
+                        .in_set(RenderSet::QueueMeshes)
+                        .after(queue_material_meshes::<StandardMaterial>),
                     drain_transparent_for_wboit
-                        .in_set(RenderSystems::QueueMeshes)
-                        .after(queue_material_meshes),
-                    sort_phase_system::<WboitAccum3d>.in_set(RenderSystems::PhaseSort),
-                    queue_wboit_composite_pipeline.in_set(RenderSystems::Queue),
+                        .in_set(RenderSet::QueueMeshes)
+                        .after(queue_wboit_meshes),
+                    sort_phase_system::<WboitAccum3d>.in_set(RenderSet::PhaseSort),
+                    queue_wboit_composite_pipeline.in_set(RenderSet::Queue),
                     prepare_wboit_composite_bind_group
-                        .in_set(RenderSystems::PrepareBindGroups),
+                        .in_set(RenderSet::PrepareBindGroups),
                 ),
             )
-            .add_systems(
+            // Register render graph nodes: accum → composite, placed after MainTransparentPass
+            .add_render_graph_node::<ViewNodeRunner<WboitAccumNode>>(Core3d, WboitAccumPass)
+            .add_render_graph_node::<ViewNodeRunner<WboitCompositeNode>>(Core3d, WboitCompositePass)
+            .add_render_graph_edges(
                 Core3d,
                 (
-                    accum_pass::wboit_accum_pass
-                        .after(main_transparent_pass_3d)
-                        .in_set(Core3dSystems::MainPass),
-                    composite::wboit_composite_pass
-                        .after(accum_pass::wboit_accum_pass)
-                        .in_set(Core3dSystems::MainPass),
+                    Node3d::MainTransparentPass,
+                    WboitAccumPass,
+                    WboitCompositePass,
+                    Node3d::EndMainPass,
                 ),
             );
     }
@@ -120,9 +122,8 @@ impl Plugin for NaiveWboitPlugin {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
-        render_app.add_systems(
-            bevy::render::RenderStartup,
-            (init_wboit_pipeline, init_wboit_composite_pipeline),
-        );
+        render_app
+            .init_resource::<WboitPipeline>()
+            .init_resource::<WboitCompositePipeline>();
     }
 }

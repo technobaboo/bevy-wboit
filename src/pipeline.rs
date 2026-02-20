@@ -1,31 +1,46 @@
-use bevy::asset::{uuid_handle, Handle};
+use bevy::asset::{weak_handle, Handle};
 use bevy::pbr::{material_uses_bindless_resources, MeshPipeline, StandardMaterial};
-use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::render_resource::{
-    AsBindGroup, BindGroupLayoutDescriptor, BlendComponent, BlendFactor, BlendOperation,
+    AsBindGroup, BindGroupLayout, BlendComponent, BlendFactor, BlendOperation,
     BlendState, ColorTargetState, ColorWrites, RenderPipelineDescriptor,
     SpecializedMeshPipeline, SpecializedMeshPipelineError, TextureFormat,
 };
+use bevy::render::render_resource::{Shader, ShaderDefVal};
 use bevy::render::renderer::RenderDevice;
-use bevy::shader::{Shader, ShaderDefVal};
 use bevy::{pbr::MeshPipelineKey, prelude::*};
 
 pub const WBOIT_FRAGMENT_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("3e4b7c2a-1f0d-4e8a-9b5c-2d6f7e8a9b0c");
+    weak_handle!("3e4b7c2a-1f0d-4e8a-9b5c-2d6f7e8a9b0c");
 
 /// The WBOIT accumulation pipeline.
 ///
-/// Wraps `MeshPipeline` but adds the StandardMaterial bind group layout at index 3,
+/// Wraps `MeshPipeline` but adds the StandardMaterial bind group layout at index 2,
 /// overrides the fragment shader for WBOIT MRT output.
 #[derive(Resource, Clone)]
 pub struct WboitPipeline {
     pub mesh_pipeline: MeshPipeline,
-    /// StandardMaterial's bind group layout descriptor, inserted at index 3.
-    pub material_layout: BindGroupLayoutDescriptor,
+    /// StandardMaterial's bind group layout, inserted at index 2.
+    pub material_layout: BindGroupLayout,
     pub fragment_shader: Handle<Shader>,
     /// Whether the device supports (and will use) bindless resources for StandardMaterial.
     /// Mirrors the check in `MaterialPipelineSpecializer` so we add `BINDLESS` to shader defs.
     pub bindless: bool,
+}
+
+impl FromWorld for WboitPipeline {
+    fn from_world(world: &mut World) -> Self {
+        let mesh_pipeline = world.resource::<MeshPipeline>().clone();
+        let render_device = world.resource::<RenderDevice>();
+        let material_layout = StandardMaterial::bind_group_layout(render_device);
+        let bindless = material_uses_bindless_resources::<StandardMaterial>(render_device);
+        WboitPipeline {
+            mesh_pipeline,
+            material_layout,
+            fragment_shader: WBOIT_FRAGMENT_SHADER_HANDLE,
+            bindless,
+        }
+    }
 }
 
 impl SpecializedMeshPipeline for WboitPipeline {
@@ -40,17 +55,14 @@ impl SpecializedMeshPipeline for WboitPipeline {
 
         desc.label = Some("wboit_accum_pipeline".into());
 
-        // Add MATERIAL_BIND_GROUP shader def (index 3) so PBR imports resolve correctly.
-        // MaterialPipelineSpecializer does the same (material.rs:466-475).
-        desc.vertex.shader_defs.push(ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 3));
+        // Add MATERIAL_BIND_GROUP shader def (index 2) so PBR imports resolve correctly.
+        // In Bevy 0.16 the view binding array is merged into group 0; mesh is group 1; material is group 2.
+        desc.vertex.shader_defs.push(ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 2));
         if let Some(ref mut fragment) = desc.fragment {
-            fragment.shader_defs.push(ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 3));
+            fragment.shader_defs.push(ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 2));
         }
 
         // Mirror MaterialPipelineSpecializer: add BINDLESS when the device supports it.
-        // Without this the shader's #ifdef BINDLESS path is skipped, but the layout returned
-        // by bind_group_layout_descriptor (with force_no_bindless=false) is the bindless
-        // storage-buffer layout — causing a type mismatch that makes the pipeline invalid.
         if self.bindless {
             desc.vertex.shader_defs.push("BINDLESS".into());
             if let Some(ref mut fragment) = desc.fragment {
@@ -58,10 +70,10 @@ impl SpecializedMeshPipeline for WboitPipeline {
             }
         }
 
-        // Insert StandardMaterial bind group layout at index 3.
-        // MeshPipeline::specialize() only produces layouts for groups 0-2;
+        // Insert StandardMaterial bind group layout at index 2.
+        // MeshPipeline::specialize() produces layouts for groups 0-1;
         // without this the fragment shader's material bindings have no pipeline layout entry.
-        desc.layout.insert(3, self.material_layout.clone());
+        desc.layout.insert(2, self.material_layout.clone());
 
         // Override fragment shader
         if let Some(ref mut fragment) = desc.fragment {
@@ -115,22 +127,6 @@ impl SpecializedMeshPipeline for WboitPipeline {
 
         Ok(desc)
     }
-}
-
-/// Initialize the WBOIT pipeline resource.
-pub fn init_wboit_pipeline(
-    mut commands: Commands,
-    mesh_pipeline: Res<MeshPipeline>,
-    render_device: Res<RenderDevice>,
-) {
-    let material_layout = StandardMaterial::bind_group_layout_descriptor(&render_device);
-    let bindless = material_uses_bindless_resources::<StandardMaterial>(&render_device);
-    commands.insert_resource(WboitPipeline {
-        mesh_pipeline: mesh_pipeline.clone(),
-        material_layout,
-        fragment_shader: WBOIT_FRAGMENT_SHADER_HANDLE,
-        bindless,
-    });
 }
 
 /// Check that MSAA is off for cameras with WboitSettings.

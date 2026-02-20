@@ -3,9 +3,29 @@ name = "bevy-wboit"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-bevy = { path = "../bevy" }
-bevy_utils = { path = "../bevy/crates/bevy_utils", features = ["debug"] }
+[dependencies.bevy]
+version = "0.16"
+default-features = false
+features = [
+	# "bevy_asset",
+	# "bevy_audio",
+	"bevy_color",
+	"bevy_core_pipeline",
+	# "bevy_gizmos",
+	# "bevy_gltf",
+	"bevy_log",
+	"bevy_pbr",
+	"bevy_render",
+	"bevy_text",
+	"bevy_ui",
+	"bevy_window",
+	"bevy_winit",
+	"std",
+	"wayland",
+	"multi_threaded",
+]
+# path = "../bevy"
+
 
 [[example]]
 name = "wboit_demo"

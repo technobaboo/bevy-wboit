@@ -5,7 +5,7 @@ use bevy::render::render_resource::{
     SamplerDescriptor, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
     TextureView, TextureViewDescriptor,
 };
-use bevy::render::render_resource::{FilterMode, MipmapFilterMode};
+use bevy::render::render_resource::FilterMode;
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::render::texture::TextureCache;
 
@@ -211,7 +211,7 @@ pub fn prepare_histogram_wboit_textures(
                 label: Some("histo_cdf_sampler"),
                 mag_filter: FilterMode::Linear,
                 min_filter: FilterMode::Linear,
-                mipmap_filter: MipmapFilterMode::Nearest,
+                mipmap_filter: FilterMode::Nearest,
                 ..default()
             });
 

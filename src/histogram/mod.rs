@@ -6,36 +6,35 @@ pub mod textures;
 
 use bevy::asset::load_internal_asset;
 use bevy::prelude::*;
-use bevy::core_pipeline::{Core3d, Core3dSystems};
-use bevy::core_pipeline::core_3d::main_transparent_pass_3d;
+use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
 use bevy::pbr::queue_material_meshes;
 use bevy::render::extract_component::ExtractComponentPlugin;
 use bevy::pbr::MeshPipeline;
+use bevy::render::render_graph::{RenderGraphApp, ViewNodeRunner};
 use bevy::render::render_phase::{
     AddRenderCommand, DrawFunctions, SortedRenderPhasePlugin, ViewSortedRenderPhases,
     sort_phase_system,
 };
-use bevy::render::render_resource::SpecializedMeshPipelines;
+use bevy::render::render_resource::{Shader, SpecializedMeshPipelines};
 use bevy::render::view::RetainedViewEntity;
-use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderDebugFlags, RenderSystems};
-use bevy::shader::Shader;
+use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderDebugFlags, RenderSet};
 use std::collections::HashSet;
 
 use crate::phase::HistoAccum3d;
 use crate::settings::HEWboitSettings;
 
 use self::accum_pass::{
-    DrawHistoWboit, drain_transparent_for_he_wboit, histo_wboit_accum_pass,
-    queue_histo_wboit_meshes,
+    DrawHistoWboit, HistoWboitAccumNode, HistoWboitAccumPass,
+    drain_transparent_for_he_wboit, queue_histo_wboit_meshes,
 };
-use self::cdf_build::histo_wboit_cdf_build;
+use self::cdf_build::{HistoCdfBuildNode, HistoCdfBuildPass};
 use self::composite::{
-    init_histo_composite_pipeline, prepare_histo_wboit_bind_groups,
-    queue_histo_composite_pipeline, histo_wboit_composite_pass,
+    HistoCompositePipeline, HistoWboitCompositeNode, HistoWboitCompositePass,
+    prepare_histo_wboit_bind_groups, queue_histo_composite_pipeline,
 };
 use self::pipeline::{
-    HistogramWboitPipeline, check_msaa_he_wboit, configure_depth_texture_usages_he_wboit,
-    init_histogram_wboit_pipeline,
+    CdfBuildPipeline, HistogramWboitPipeline, check_msaa_he_wboit,
+    configure_depth_texture_usages_he_wboit,
 };
 use self::textures::prepare_histogram_wboit_textures;
 
@@ -103,28 +102,30 @@ impl Plugin for HEWboitPlugin {
                 Render,
                 (
                     prepare_histogram_wboit_textures
-                        .in_set(RenderSystems::PrepareResources),
-                    queue_histo_wboit_meshes.in_set(RenderSystems::QueueMeshes),
+                        .in_set(RenderSet::PrepareResources),
+                    queue_histo_wboit_meshes
+                        .in_set(RenderSet::QueueMeshes)
+                        .after(queue_material_meshes::<StandardMaterial>),
                     drain_transparent_for_he_wboit
-                        .in_set(RenderSystems::QueueMeshes)
-                        .after(queue_material_meshes),
-                    sort_phase_system::<HistoAccum3d>.in_set(RenderSystems::PhaseSort),
-                    queue_histo_composite_pipeline.in_set(RenderSystems::Queue),
-                    prepare_histo_wboit_bind_groups.in_set(RenderSystems::PrepareBindGroups),
+                        .in_set(RenderSet::QueueMeshes)
+                        .after(queue_histo_wboit_meshes),
+                    sort_phase_system::<HistoAccum3d>.in_set(RenderSet::PhaseSort),
+                    queue_histo_composite_pipeline.in_set(RenderSet::Queue),
+                    prepare_histo_wboit_bind_groups.in_set(RenderSet::PrepareBindGroups),
                 ),
             )
-            .add_systems(
+            // Register render graph nodes: accum → cdf_build → composite
+            .add_render_graph_node::<ViewNodeRunner<HistoWboitAccumNode>>(Core3d, HistoWboitAccumPass)
+            .add_render_graph_node::<ViewNodeRunner<HistoCdfBuildNode>>(Core3d, HistoCdfBuildPass)
+            .add_render_graph_node::<ViewNodeRunner<HistoWboitCompositeNode>>(Core3d, HistoWboitCompositePass)
+            .add_render_graph_edges(
                 Core3d,
                 (
-                    histo_wboit_accum_pass
-                        .after(main_transparent_pass_3d)
-                        .in_set(Core3dSystems::MainPass),
-                    histo_wboit_cdf_build
-                        .after(histo_wboit_accum_pass)
-                        .in_set(Core3dSystems::MainPass),
-                    histo_wboit_composite_pass
-                        .after(histo_wboit_cdf_build)
-                        .in_set(Core3dSystems::MainPass),
+                    Node3d::MainTransparentPass,
+                    HistoWboitAccumPass,
+                    HistoCdfBuildPass,
+                    HistoWboitCompositePass,
+                    Node3d::EndMainPass,
                 ),
             );
     }
@@ -133,9 +134,9 @@ impl Plugin for HEWboitPlugin {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
-        render_app.add_systems(
-            bevy::render::RenderStartup,
-            (init_histogram_wboit_pipeline, init_histo_composite_pipeline),
-        );
+        render_app
+            .init_resource::<HistogramWboitPipeline>()
+            .init_resource::<CdfBuildPipeline>()
+            .init_resource::<HistoCompositePipeline>();
     }
 }

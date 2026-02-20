@@ -1,3 +1,4 @@
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
 use bevy_wboit::{HEWboitPlugin, HEWboitSettings, WboitPlugin, WboitSettings};
 
@@ -17,6 +18,7 @@ fn setup(
     // Camera with WBOIT enabled by default (key 2 mode)
     commands.spawn((
         Camera3d::default(),
+        Tonemapping::None,
         Transform::from_xyz(0., 2., 8.).looking_at(Vec3::ZERO, Vec3::Y),
         WboitSettings,
         Msaa::Off,

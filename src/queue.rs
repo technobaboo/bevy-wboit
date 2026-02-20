@@ -1,20 +1,17 @@
 use bevy::prelude::*;
 use bevy::pbr::{
     DrawMesh, MeshPipelineKey, RenderMeshInstances, SetMeshBindGroup,
-    SetMeshViewBindGroup, SetMeshViewBindingArrayBindGroup, SetMaterialBindGroup,
-    ViewKeyCache, alpha_mode_pipeline_key,
-    RenderMaterialInstances, PreparedMaterial,
+    SetMeshViewBindGroup, SetMaterialBindGroup,
+    ViewKeyCache,
 };
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_phase::{
     DrawFunctions, PhaseItemExtraIndex, SetItemPipeline, ViewSortedRenderPhases,
 };
 use bevy::render::render_resource::{PipelineCache, SpecializedMeshPipelines};
-use bevy::render::view::{ExtractedView, RenderVisibleEntities};
+use bevy::render::view::ExtractedView;
 use bevy::render::mesh::RenderMesh;
 use bevy::core_pipeline::core_3d::Transparent3d;
-use bevy::render::erased_render_asset::ErasedRenderAssets;
-use bevy::material::RenderPhaseType;
 
 use crate::phase::WboitAccum3d;
 use crate::pipeline::WboitPipeline;
@@ -23,24 +20,25 @@ use crate::settings::WboitSettings;
 pub type DrawWboit = (
     SetItemPipeline,
     SetMeshViewBindGroup<0>,
-    SetMeshViewBindingArrayBindGroup<1>,
-    SetMeshBindGroup<2>,
-    SetMaterialBindGroup<3>,
+    SetMeshBindGroup<1>,
+    SetMaterialBindGroup<StandardMaterial, 2>,
     DrawMesh,
 );
 
 /// Specialize and queue transparent meshes into `WboitAccum3d` for WBOIT cameras.
+///
+/// Runs after `queue_material_meshes`, reads from `Transparent3d` to get the
+/// already-filtered transparent entities, then re-specializes them with the WBOIT pipeline.
 pub fn queue_wboit_meshes(
     render_meshes: Res<RenderAssets<RenderMesh>>,
-    render_materials: Res<ErasedRenderAssets<PreparedMaterial>>,
     render_mesh_instances: Res<RenderMeshInstances>,
-    render_material_instances: Res<RenderMaterialInstances>,
     wboit_pipeline: Option<Res<WboitPipeline>>,
     mut pipelines: ResMut<SpecializedMeshPipelines<WboitPipeline>>,
     pipeline_cache: Res<PipelineCache>,
     draw_functions: Res<DrawFunctions<WboitAccum3d>>,
     mut wboit_phases: ResMut<ViewSortedRenderPhases<WboitAccum3d>>,
-    views: Query<(&ExtractedView, &RenderVisibleEntities), With<WboitSettings>>,
+    transparent_phases: Res<ViewSortedRenderPhases<Transparent3d>>,
+    views: Query<&ExtractedView, With<WboitSettings>>,
     view_key_cache: Res<ViewKeyCache>,
 ) {
     let Some(wboit_pipeline) = wboit_pipeline else {
@@ -48,7 +46,7 @@ pub fn queue_wboit_meshes(
     };
     let draw_wboit = draw_functions.read().id::<DrawWboit>();
 
-    for (view, visible_entities) in &views {
+    for view in &views {
         let Some(wboit_phase) = wboit_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -57,27 +55,15 @@ pub fn queue_wboit_meshes(
             continue;
         };
 
-        let rangefinder = view.rangefinder3d();
+        let Some(transparent_phase) = transparent_phases.get(&view.retained_view_entity) else {
+            continue;
+        };
 
-        for (render_entity, visible_entity) in visible_entities.iter::<Mesh3d>() {
-            // Get material
-            let Some(material_instance) =
-                render_material_instances.instances.get(visible_entity)
-            else {
-                continue;
-            };
-            let Some(material) = render_materials.get(material_instance.asset_id) else {
-                continue;
-            };
+        for item in &transparent_phase.items {
+            let (render_entity, main_entity) = item.entity;
 
-            // Only queue transparent materials
-            if !matches!(material.properties.render_phase_type, RenderPhaseType::Transparent) {
-                continue;
-            }
-
-            // Get mesh
             let Some(mesh_instance) =
-                render_mesh_instances.render_mesh_queue_data(*visible_entity)
+                render_mesh_instances.render_mesh_queue_data(main_entity)
             else {
                 continue;
             };
@@ -85,18 +71,12 @@ pub fn queue_wboit_meshes(
                 continue;
             };
 
-            // Compute mesh pipeline key
-            let mut mesh_pipeline_key_bits: MeshPipelineKey =
-                material.properties.mesh_pipeline_key_bits.downcast();
-            mesh_pipeline_key_bits.insert(alpha_mode_pipeline_key(
-                material.properties.alpha_mode,
-                &Msaa::Off,
-            ));
+            // Use BLEND_ALPHA as the default alpha mode key; WBOIT overrides the
+            // fragment shader so this mainly affects vertex shader specialization.
             let mesh_key = *view_key
                 | MeshPipelineKey::from_bits_retain(mesh.key_bits.bits())
-                | mesh_pipeline_key_bits;
+                | MeshPipelineKey::BLEND_ALPHA;
 
-            // Specialize the WBOIT pipeline
             let pipeline_id =
                 pipelines.specialize(&pipeline_cache, &wboit_pipeline, mesh_key, &mesh.layout);
             let pipeline_id = match pipeline_id {
@@ -107,17 +87,14 @@ pub fn queue_wboit_meshes(
                 }
             };
 
-            let distance =
-                rangefinder.distance(&mesh_instance.center) + material.properties.depth_bias;
-
             wboit_phase.add(WboitAccum3d {
-                distance,
+                distance: item.distance,
                 pipeline: pipeline_id,
-                entity: (*render_entity, *visible_entity),
+                entity: (render_entity, main_entity),
                 draw_function: draw_wboit,
                 batch_range: 0..1,
                 extra_index: PhaseItemExtraIndex::None,
-                indexed: mesh.indexed(),
+                indexed: item.indexed,
             });
         }
     }
