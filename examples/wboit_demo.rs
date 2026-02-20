@@ -1,9 +1,9 @@
 use bevy::prelude::*;
-use bevy_wboit::{WboitPlugin, WboitSettings};
+use bevy_wboit::{HEWboitPlugin, HEWboitSettings, WboitPlugin, WboitSettings};
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, WboitPlugin))
+        .add_plugins((DefaultPlugins, WboitPlugin, HEWboitPlugin))
         .add_systems(Startup, setup)
         .add_systems(Update, (toggle_mode, rotate_camera))
         .run();
@@ -14,7 +14,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Camera with WBOIT enabled
+    // Camera with WBOIT enabled by default (key 2 mode)
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(0., 2., 8.).looking_at(Vec3::ZERO, Vec3::Y),
@@ -70,7 +70,7 @@ fn setup(
 
     // Instructions
     commands.spawn((
-        Text::new("1: No OIT  |  2: WBOIT\nDrag mouse to rotate"),
+        Text::new("1: No OIT  |  2: WBOIT  |  3: HE-WBOIT\nDrag mouse to rotate"),
         Node {
             position_type: PositionType::Absolute,
             top: Val::Px(10.0),
@@ -90,15 +90,30 @@ fn toggle_mode(
     };
 
     if keys.just_pressed(KeyCode::Digit1) {
-        // Remove WBOIT
-        commands.entity(camera_entity).remove::<WboitSettings>();
+        // No OIT
+        commands
+            .entity(camera_entity)
+            .remove::<WboitSettings>()
+            .remove::<HEWboitSettings>();
         info!("Switched to standard transparency (no OIT)");
     }
 
     if keys.just_pressed(KeyCode::Digit2) {
-        // Enable WBOIT
-        commands.entity(camera_entity).insert(WboitSettings);
+        // Naive WBOIT
+        commands
+            .entity(camera_entity)
+            .remove::<HEWboitSettings>()
+            .insert(WboitSettings);
         info!("Switched to naive WBOIT");
+    }
+
+    if keys.just_pressed(KeyCode::Digit3) {
+        // Histogram-equalized WBOIT
+        commands
+            .entity(camera_entity)
+            .remove::<WboitSettings>()
+            .insert(HEWboitSettings::default());
+        info!("Switched to HE-WBOIT");
     }
 }
 
@@ -143,7 +158,6 @@ fn rotate_camera(
                 Vec3::ZERO,
                 Quat::from_rotation_y(-delta.x * sensitivity),
             );
-            // Pitch: rotate around the camera's local right axis
             let right = transform.right();
             transform.rotate_around(
                 Vec3::ZERO,

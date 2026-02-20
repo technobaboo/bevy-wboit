@@ -15,16 +15,16 @@ pub struct WboitSettings;
 ///
 /// Usage:
 /// ```ignore
-/// commands.spawn((Camera3d::default(), HistogramWboitSettings::default(), Msaa::Off));
+/// commands.spawn((Camera3d::default(), HEWboitSettings::default(), Msaa::Off));
 /// ```
 #[derive(Component, Clone, Copy, ExtractComponent, Reflect)]
 #[reflect(Default)]
-pub struct HistogramWboitSettings {
+pub struct HEWboitSettings {
     pub tile_size: u32,
     pub num_bins: u32,
 }
 
-impl Default for HistogramWboitSettings {
+impl Default for HEWboitSettings {
     fn default() -> Self {
         Self {
             tile_size: 32,
