@@ -107,6 +107,7 @@ fn rotate_camera(
     keys: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<bevy::input::mouse::AccumulatedMouseMotion>,
+    mouse_scroll: Res<bevy::input::mouse::AccumulatedMouseScroll>,
     mut camera: Query<&mut Transform, With<Camera3d>>,
 ) {
     let Ok(mut transform) = camera.single_mut() else {
@@ -124,6 +125,13 @@ fn rotate_camera(
     if yaw != 0.0 {
         let angle = yaw * time.delta_secs();
         transform.rotate_around(Vec3::ZERO, Quat::from_rotation_y(angle));
+    }
+
+    // Scroll to zoom (move along camera's forward axis)
+    let scroll = mouse_scroll.delta.y;
+    if scroll != 0.0 {
+        let forward = transform.forward();
+        transform.translation += *forward * scroll * 0.5;
     }
 
     // Mouse drag orbit
