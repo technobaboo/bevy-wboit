@@ -14,6 +14,10 @@ struct HistogramParams {
     tile_count_y: u32,
     num_bins: u32,
     tile_size: u32,
+    max_depth: f32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 @group(3) @binding(0) var<storage, read_write> histogram: array<atomic<u32>>;
@@ -57,8 +61,11 @@ fn fragment(
 
     let alpha = premul.a;
 
-    // Compute normalized depth [0,1] where 0=near, 1=far (Bevy reverse-Z)
-    let normalized_z = 1.0 - in.position.z;
+    // Compute normalized depth [0,1] using linear eye-space depth.
+    // in.position.w = 1/w_clip = 1/eye_z in WGSL fragment shaders, so 1/w gives linear depth.
+    // We normalize by max_depth (analogous to the far plane in a finite perspective camera).
+    let linear_depth = 1.0 / in.position.w;
+    let normalized_z = clamp(linear_depth / histo_params.max_depth, 0.0, 1.0);
 
     // --- Histogram recording ---
     let nb = histo_params.num_bins;

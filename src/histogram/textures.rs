@@ -20,15 +20,18 @@ pub struct HistogramParams {
     pub tile_count_y: u32,
     pub num_bins: u32,
     pub tile_size: u32,
+    pub max_depth: f32,
+    pub _padding: [u32; 3],
 }
 
 impl HistogramParams {
-    fn as_bytes(&self) -> [u8; 16] {
-        let mut bytes = [0u8; 16];
+    fn as_bytes(&self) -> [u8; 32] {
+        let mut bytes = [0u8; 32];
         bytes[0..4].copy_from_slice(&self.tile_count_x.to_le_bytes());
         bytes[4..8].copy_from_slice(&self.tile_count_y.to_le_bytes());
         bytes[8..12].copy_from_slice(&self.num_bins.to_le_bytes());
         bytes[12..16].copy_from_slice(&self.tile_size.to_le_bytes());
+        bytes[16..20].copy_from_slice(&self.max_depth.to_le_bytes());
         bytes
     }
 }
@@ -153,6 +156,8 @@ pub fn prepare_histogram_wboit_textures(
             tile_count_y,
             num_bins,
             tile_size,
+            max_depth: he_settings.max_depth,
+            _padding: [0; 3],
         };
 
         // Check if we need to recreate (size or params changed)
